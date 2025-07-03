@@ -1,0 +1,20 @@
+{{define "base"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Well Database</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>Well Database Management</h1>
+    </header>
+    <main>
+        {{template "content" .}}
+    </main>
+    <footer>
+        <p>&copy; 2023 Oil Company</p>
+    </footer>
+</body>
+</html>
+{{end}}

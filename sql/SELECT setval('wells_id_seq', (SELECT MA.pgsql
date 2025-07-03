@@ -1,0 +1,1 @@
+SELECT setval('wells_id_seq', (SELECT MAX(id) FROM wells));
