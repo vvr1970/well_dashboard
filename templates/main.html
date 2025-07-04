@@ -1,0 +1,80 @@
+{{ define "main" }}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h2>Аналитика добычи</h2>
+    {{ if .ShowAddButton }}
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <a href="/add" class="btn btn-sm btn-success">
+            <i data-feather="plus"></i> Добавить скважину
+        </a>
+    </div>
+    {{ end }}
+</div>
+
+<!-- Графики -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header" style="overflow: hidden;">
+                <h5 style="font-size: clamp(0.9rem, 2vw, 1.5rem); white-space: nowrap;">
+                    Изменение буферного и затрубного давления
+                </h5>
+            </div>
+            <div class="card-body">
+                <img src="static/images/graph1.png" alt="График 1" class="img-fluid"> <!-- Убрано graph1-img, добавлен img-fluid -->
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 style="font-size: clamp(0.9rem, 2vw, 1.5rem); white-space: nowrap;">
+                    Изменение дебита и высоты столба ГЖС
+                </h5>
+            </div>
+            <div class="card-body">
+                <img src="static/images/graph2.png" alt="График 2" class="img-fluid"> <!-- Убрано graph1-img, добавлен img-fluid -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Таблица -->
+<div class="table-responsive">
+    <table class="table table-striped table-hover">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Месторождение</th>
+                <th>Статус</th>
+                <th class="text-end">Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ range .Wells }}
+            <tr>
+                <td>{{ .ID }}</td>
+                <td><strong>{{ .Name }}</strong></td>
+                <td>{{ .Field }}</td>
+                <td>
+                    <span class="badge rounded-pill bg-{{ if eq .Status "active" }}success{{ else if eq .Status "repair" }}warning{{ else }}secondary{{ end }}">
+                        {{ if eq .Status "active" }}Активна{{ else if eq .Status "repair" }}Ремонт{{ else }}Консервация{{ end }}
+                    </span>
+                </td>
+                <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                        <a href="/delete/{{ .ID }}" class="btn btn-outline-danger" onclick="return confirm('Удалить скважину?')">
+                            <i data-feather="trash-2"></i>
+                        </a>
+                    </div>
+                </td>
+            </tr>
+            {{ end }}
+        </tbody>
+    </table>
+</div>
+
+<!-- Скрипты -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+{{ end }}

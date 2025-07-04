@@ -1,195 +1,163 @@
 package main
 
 import (
-	"database/sql"
 	"html/template"
 	"log"
 	"net/http"
 	"strconv"
-
-	"github.com/gorilla/mux"
-	_ "github.com/lib/pq"
+	"sync"
 )
 
-// Модель скважины
-type GasWell struct {
-	ID         int
-	Name       string
-	Location   string
-	Production float64
-	Status     string
+type Well struct {
+	ID     int
+	Name   string
+	Field  string
+	Status string // "active", "repair", "conservation"
 }
 
-var db *sql.DB
-var tmpl *template.Template
-
-func init() {
-	// Подключение к PostgreSQL
-	var err error
-	connStr := "user=post password=post dbname=wells_db sslmode=disable"
-	db, err = sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Загрузка шаблонов
-	tmpl = template.Must(template.ParseGlob("templates/*.html"))
+type Stats struct {
+	Active       int
+	Repair       int
+	Conservation int
 }
+
+type PageData struct {
+	Title         string
+	Wells         []Well
+	ShowAddButton bool
+	ActiveTab     string
+	Stats         Stats
+}
+
+var (
+	data     PageData
+	dataLock sync.Mutex
+)
 
 func main() {
-	r := mux.NewRouter()
+	// Инициализация тестовых данных
+	data = PageData{
+		Title: "Управление скважинами",
+		Wells: []Well{
+			{1, "Скважина-1", "Месторождение-1", "active"},
+			{2, "Скважина-2", "Месторождение-2", "repair"},
+			{3, "Скважина-3", "Месторождение-1", "conservation"},
+		},
+		ShowAddButton: true,
+	}
+	// Статические файлы
+	fs := http.FileServer(http.Dir("static"))
+	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
-	// Статические файлы (графики)
-	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	// Маршруты
+	http.HandleFunc("/", homeHandler)
+	http.HandleFunc("/add", addWellHandler)
+	http.HandleFunc("/delete/", deleteWellHandler)
 
-	// Роуты
-	r.HandleFunc("/", listWells).Methods("GET")
-	r.HandleFunc("/create", createWellForm).Methods("GET")
-	r.HandleFunc("/create", createWell).Methods("POST")
-	r.HandleFunc("/edit/{id}", editWellForm).Methods("GET")
-	r.HandleFunc("/edit/{id}", editWell).Methods("POST")
-	r.HandleFunc("/delete/{id}", deleteWell).Methods("GET")
-	r.HandleFunc("/view/{id}", viewWell).Methods("GET") // Важно!
-
-	log.Println("Server started on :8081")
-	http.ListenAndServe(":8081", r)
+	log.Println("Сервер запущен на http://localhost:8081")
+	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
-// Список всех скважин
-func listWells(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query("SELECT id, name, location, production, status FROM gas_wells")
+// Основноф Хандлер
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	err := tmpl.ExecuteTemplate(w, "base", data)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer rows.Close()
-
-	var wells []GasWell
-	for rows.Next() {
-		var well GasWell
-		err := rows.Scan(&well.ID, &well.Name, &well.Location, &well.Production, &well.Status)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		wells = append(wells, well)
-	}
-
-	tmpl.ExecuteTemplate(w, "index.html", wells)
-}
-
-// Форма добавления
-func createWellForm(w http.ResponseWriter, r *http.Request) {
-	tmpl.ExecuteTemplate(w, "create.html", nil)
-}
-
-// Добавление скважины
-func createWell(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("name")
-	location := r.FormValue("location")
-	production, _ := strconv.ParseFloat(r.FormValue("production"), 64)
-	status := r.FormValue("status")
-
-	_, err := db.Exec(
-		"INSERT INTO gas_wells (name, location, production, status) VALUES ($1, $2, $3, $4)",
-		name, location, production, status,
-	)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// Форма редактирования
-func editWellForm(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id, _ := strconv.Atoi(vars["id"])
-
-	var well GasWell
-	err := db.QueryRow("SELECT id, name, location, production, status FROM gas_wells WHERE id = $1", id).Scan(
-		&well.ID, &well.Name, &well.Location, &well.Production, &well.Status,
-	)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	tmpl.ExecuteTemplate(w, "edit.html", well)
-}
-
-// Обновление данных
-func editWell(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id, _ := strconv.Atoi(vars["id"])
-
-	name := r.FormValue("name")
-	location := r.FormValue("location")
-	production, _ := strconv.ParseFloat(r.FormValue("production"), 64)
-	status := r.FormValue("status")
-
-	_, err := db.Exec(
-		"UPDATE gas_wells SET name=$1, location=$2, production=$3, status=$4 WHERE id=$5",
-		name, location, production, status, id,
-	)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// Удаление скважины
-func deleteWell(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id, _ := strconv.Atoi(vars["id"])
-
-	_, err := db.Exec("DELETE FROM gas_wells WHERE id = $1", id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// Просмотр деталей скважины
-func viewWell(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	id, err := strconv.Atoi(vars["id"])
-	if err != nil {
-		log.Println("Ошибка парсинга ID:", err)
-		http.Error(w, "Некорректный ID", http.StatusBadRequest)
-		return
-	}
-
-	var well GasWell
-	err = db.QueryRow("SELECT id, name, location, production, status FROM gas_wells WHERE id = $1", id).Scan(
-		&well.ID, &well.Name, &well.Location, &well.Production, &well.Status,
-	)
-	if err != nil {
-		log.Println("Ошибка запроса к БД:", err) // Логируем ошибку
-		http.Error(w, "Скважина не найдена", http.StatusNotFound)
-		return
-	}
-
-	// Логируем полученные данные
-	log.Printf("Данные скважины: %+v\n", well)
-
-	// Проверяем, что шаблон существует
-	tmpl, err := template.ParseFiles("templates/view.html")
-	if err != nil {
-		log.Println("Ошибка загрузки шаблона:", err)
+		log.Printf("Ошибка рендеринга: %v", err)
 		http.Error(w, "Ошибка сервера", http.StatusInternalServerError)
+	}
+}
+
+// -/-add
+func addWellHandler(w http.ResponseWriter, r *http.Request) {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	if r.Method == "POST" {
+		// Обработка отправки формы
+		id := len(data.Wells) + 1
+		name := r.FormValue("name")
+		field := r.FormValue("field")
+		status := r.FormValue("status")
+
+		data.Wells = append(data.Wells, Well{
+			ID:     id,
+			Name:   name,
+			Field:  field,
+			Status: status,
+		})
+		// В обработчике /:
+		data.Stats = calculateStats(data.Wells)
+		data.ActiveTab = "dashboard"
+
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 
-	// Рендерим шаблон
-	err = tmpl.Execute(w, well)
+	// Показ формы добавления
+	data.ShowAddButton = false
+	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	err := tmpl.ExecuteTemplate(w, "base", data)
 	if err != nil {
-		log.Println("Ошибка рендеринга шаблона:", err)
+		log.Printf("Ошибка рендеринга: %v", err)
+		http.Error(w, "Ошибка сервера", http.StatusInternalServerError)
+	}
+}
+
+func deleteWellHandler(w http.ResponseWriter, r *http.Request) {
+	dataLock.Lock()
+	defer dataLock.Unlock()
+
+	idStr := r.URL.Path[len("/delete/"):]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Неверный ID", http.StatusBadRequest)
 		return
 	}
+
+	// Удаление скважины
+	for i, well := range data.Wells {
+		if well.ID == id {
+			data.Wells = append(data.Wells[:i], data.Wells[i+1:]...)
+			break
+		}
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
+	t, err := template.ParseFiles(
+		"templates/base.html",
+		"templates/header.html",
+		"templates/sidebar.html",
+		"templates/"+tmpl+".html",
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = t.ExecuteTemplate(w, "base", data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// Новая функция:
+func calculateStats(wells []Well) Stats {
+	var stats Stats
+	for _, w := range wells {
+		switch w.Status {
+		case "active":
+			stats.Active++
+		case "repair":
+			stats.Repair++
+		case "conservation":
+			stats.Conservation++
+		}
+	}
+	return stats
 }
